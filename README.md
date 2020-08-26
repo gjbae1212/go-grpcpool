@@ -1,7 +1,5 @@
 # go-grpcpool
 
-# go-bqworker
-
 <p align="left"> 
 <a href="https://hits.seeyoufarm.com"><img src="https://hits.seeyoufarm.com/api/count/incr/badge.svg?url=https%3A%2F%2Fgithub.com%2Fgjbae1212%2Fgo-grpcpool&count_bg=%2379C83D&title_bg=%23555555&icon=go.svg&icon_color=%2308BEB8&title=hits&edge_flat=false"/></a>               
    <a href="/LICENSE"><img src="https://img.shields.io/badge/license-MIT-GREEN.svg" alt="license"/></a>
