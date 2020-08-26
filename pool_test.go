@@ -143,7 +143,7 @@ func BenchmarkPool_GetConn(b *testing.B) {
 
 	p, err := NewPool(func() (*grpc.ClientConn, error) {
 		return grpc.Dial(fmt.Sprintf("localhost:%s", "9999"), grpc.WithInsecure(), grpc.WithBlock())
-	}, WithMaxRequestCount(1000000), WithExpireTimeout(1*time.Second), WithIdleTimeout(1*time.Second))
+	}, WithMaxRequestCount(1000000), WithExpireTimeout(20*time.Second), WithIdleTimeout(20*time.Second))
 
 	for i := 0; i < b.N; i++ {
 		conn, _ := p.GetConn()
