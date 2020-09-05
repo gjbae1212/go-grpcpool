@@ -94,12 +94,14 @@ func (c *clientConn) getConn() (*grpc.ClientConn, error) {
 		c.requestCount > c.pool.opts.maxRequestCount {
 
 		//After 1.minute, close outdated connection.
-		go func(conn *grpc.ClientConn) {
-			select {
-			case <-time.After(time.Minute):
-				conn.Close()
-			}
-		}(c.current)
+		if c.current != nil {
+			go func(conn *grpc.ClientConn) {
+				select {
+				case <-time.After(time.Minute):
+					conn.Close()
+				}
+			}(c.current)
+		}
 
 		// initialize connection and options.
 		c.current = nil
