@@ -41,7 +41,7 @@ type pool struct {
 	opts      *poolOptions
 }
 
-// Conn returns valid grpc connection.
+// GetConn returns valid grpc connection.
 func (p *pool) GetConn() (*grpc.ClientConn, error) {
 	p.RLock()
 	defer p.RUnlock()
@@ -146,8 +146,8 @@ func NewPool(f func() (*grpc.ClientConn, error), opts ...Option) (Pool, error) {
 		if err != nil {
 			return nil, fmt.Errorf("[err] NewPool %w", err)
 		}
-		wraper := &clientConn{initial: time.Now(), latest: time.Now(), current: conn, pool: p}
-		p.conns = append(p.conns, wraper)
+		wrapper := &clientConn{initial: time.Now(), latest: time.Now(), current: conn, pool: p}
+		p.conns = append(p.conns, wrapper)
 	}
 
 	return p, nil

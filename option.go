@@ -28,7 +28,7 @@ func WithExpireTimeout(d time.Duration) OptionFunc {
 	}
 }
 
-// WithMaxRequest returns a function which sets max request count.
+// WithMaxRequestCount returns a function which sets max request count.
 func WithMaxRequestCount(c uint32) OptionFunc {
 	return func(opts *poolOptions) {
 		opts.maxRequestCount = c
