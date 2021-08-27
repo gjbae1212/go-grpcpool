@@ -41,3 +41,10 @@ func WithPoolSize(size uint32) OptionFunc {
 		opts.poolSize = size
 	}
 }
+
+// WithLazyLoading returns a function which make a decision such as lazy loading or not.
+func WithLazyLoading(b bool) OptionFunc {
+	return func(opts *poolOptions) {
+		opts.lazyLoading = b
+	}
+}

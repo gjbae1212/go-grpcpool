@@ -74,3 +74,20 @@ func TestWithPoolSize(t *testing.T) {
 		assert.Equal(t.output, opts.poolSize)
 	}
 }
+
+func TestWithLazyLoadingConnection(t *testing.T) {
+	assert := assert.New(t)
+
+	tests := map[string]struct {
+		input  bool
+		output bool
+	}{
+		"success": {input: true, output: true},
+	}
+	for _, t := range tests {
+		opts := &poolOptions{}
+		f := WithLazyLoading(t.input)
+		f(opts)
+		assert.Equal(t.output, opts.lazyLoading)
+	}
+}

@@ -1,6 +1,7 @@
 package grpcpool
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -15,6 +16,7 @@ var (
 		WithIdleTimeout(5 * time.Minute),
 		WithExpireTimeout(1 * time.Hour),
 		WithMaxRequestCount(1 << 17),
+		WithLazyLoading(false),
 	}
 )
 
@@ -31,6 +33,7 @@ type poolOptions struct {
 	idleTimeout     time.Duration
 	expireTimeout   time.Duration
 	maxRequestCount uint32
+	lazyLoading     bool
 }
 
 type pool struct {
@@ -43,21 +46,25 @@ type pool struct {
 
 // GetConn returns valid grpc connection.
 func (p *pool) GetConn() (*grpc.ClientConn, error) {
-	p.RLock()
-	defer p.RUnlock()
-
-	if len(p.conns) == 0 {
-		return nil, fmt.Errorf("[err] Conn %w", ErrorPoolEmpty)
+	// check pool connections.
+	if p.Size() < p.opts.poolSize {
+		if _, err := p.addClientConn(); err != nil {
+			if !errors.Is(err, ErrorPoolFull) {
+				return nil, fmt.Errorf("[err] GetConn %w", err)
+			}
+		}
 	}
 
 	i := atomic.AddUint64(&p.idx, 1)
-	conn := p.conns[i%uint64(len(p.conns))]
-
+	conn := p.conns[i%uint64(p.Size())]
 	return conn.getConn()
 }
 
 // Size returns pool size.
 func (p *pool) Size() uint32 {
+	p.RLock()
+	defer p.RUnlock()
+
 	return uint32(len(p.conns))
 }
 
@@ -65,6 +72,7 @@ func (p *pool) Size() uint32 {
 func (p *pool) Close() error {
 	p.Lock()
 	defer p.Unlock()
+
 	for _, conn := range p.conns {
 		conn.pool = nil
 		if conn.current != nil {
@@ -73,6 +81,27 @@ func (p *pool) Close() error {
 	}
 	p.conns = nil
 	return nil
+}
+
+// addClientConn adds clientConn to pool.
+func (p *pool) addClientConn() (*clientConn, error) {
+	p.Lock()
+	defer p.Unlock()
+
+	// if pool is already full.
+	if len(p.conns) >= int(p.opts.poolSize) {
+		return nil, fmt.Errorf("[err] addClientConn %w", ErrorPoolFull)
+	}
+
+	// create clientConn struct.
+	conn, err := p.connector()
+	if err != nil {
+		return nil, fmt.Errorf("[err] createClientConn %w", err)
+	}
+	wrapper := &clientConn{initial: time.Now(), latest: time.Now(), current: conn, pool: p}
+	p.conns = append(p.conns, wrapper)
+
+	return wrapper, nil
 }
 
 type clientConn struct {
@@ -140,14 +169,16 @@ func NewPool(f func() (*grpc.ClientConn, error), opts ...Option) (Pool, error) {
 		return nil, fmt.Errorf("[err] NewPool %w", ErrorInvalidParams)
 	}
 
+	// create grpc pool.
 	p := &pool{connector: f, opts: po}
-	for i := 0; i < int(p.opts.poolSize); i++ {
-		conn, err := p.connector()
-		if err != nil {
-			return nil, fmt.Errorf("[err] NewPool %w", err)
+
+	// create and add connections to pool if lazy loading is not.
+	if !p.opts.lazyLoading {
+		for i := 0; i < int(p.opts.poolSize); i++ {
+			if _, err := p.addClientConn(); err != nil {
+				return nil, fmt.Errorf("[err] NewPool %w", err)
+			}
 		}
-		wrapper := &clientConn{initial: time.Now(), latest: time.Now(), current: conn, pool: p}
-		p.conns = append(p.conns, wrapper)
 	}
 
 	return p, nil

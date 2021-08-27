@@ -33,6 +33,11 @@ func TestNewPool(t *testing.T) {
 			inputOpts:  []Option{WithPoolSize(1), WithIdleTimeout(time.Second), WithExpireTimeout(time.Second), WithMaxRequestCount(1)},
 			outputOpts: &poolOptions{poolSize: 1, idleTimeout: time.Second, expireTimeout: time.Second, maxRequestCount: 1},
 		},
+		"lazy-loading": {
+			inputF:     func() (*grpc.ClientConn, error) { return nil, nil },
+			inputOpts:  []Option{WithLazyLoading(true)},
+			outputOpts: &poolOptions{poolSize: 10, idleTimeout: 5 * time.Minute, expireTimeout: time.Hour, maxRequestCount: 1 << 17, lazyLoading: true},
+		},
 	}
 
 	for _, t := range tests {
@@ -43,6 +48,12 @@ func TestNewPool(t *testing.T) {
 			assert.Equal(p.(*pool).opts.idleTimeout, t.outputOpts.idleTimeout)
 			assert.Equal(p.(*pool).opts.expireTimeout, t.outputOpts.expireTimeout)
 			assert.Equal(p.(*pool).opts.poolSize, t.outputOpts.poolSize)
+			assert.Equal(p.(*pool).opts.lazyLoading, t.outputOpts.lazyLoading)
+			if p.(*pool).opts.lazyLoading {
+				assert.Len(p.(*pool).conns, 0)
+			} else {
+				assert.Len(p.(*pool).conns, int(p.(*pool).opts.poolSize))
+			}
 		}
 	}
 
@@ -51,20 +62,26 @@ func TestNewPool(t *testing.T) {
 func TestPool_Size(t *testing.T) {
 	assert := assert.New(t)
 
-	p, err := NewPool(func() (*grpc.ClientConn, error) {
+	p1, err := NewPool(func() (*grpc.ClientConn, error) {
 		return nil, nil
 	})
+	assert.NoError(err)
+
+	p2, err := NewPool(func() (*grpc.ClientConn, error) {
+		return nil, nil
+	}, WithLazyLoading(true))
 	assert.NoError(err)
 
 	tests := map[string]struct {
 		input  Pool
 		output uint32
 	}{
-		"success": {input: p, output: 10},
+		"default":      {input: p1, output: 10},
+		"lazy-loading": {input: p2, output: 0},
 	}
 
 	for _, t := range tests {
-		result := p.Size()
+		result := t.input.Size()
 		assert.Equal(t.output, result)
 	}
 
@@ -107,9 +124,15 @@ func TestPool_GetConn(t *testing.T) {
 
 	time.Sleep(1 * time.Second)
 
-	p, err := NewPool(func() (*grpc.ClientConn, error) {
+	p1, err := NewPool(func() (*grpc.ClientConn, error) {
 		return grpc.Dial(fmt.Sprintf("localhost:%s", "9999"), grpc.WithInsecure(), grpc.WithBlock())
-	}, WithMaxRequestCount(1000), WithExpireTimeout(1*time.Second), WithIdleTimeout(1*time.Second))
+	}, WithMaxRequestCount(3000), WithExpireTimeout(100*time.Second), WithIdleTimeout(100*time.Second))
+	assert.NoError(err)
+
+	p2, err := NewPool(func() (*grpc.ClientConn, error) {
+		return grpc.Dial(fmt.Sprintf("localhost:%s", "9999"), grpc.WithInsecure(), grpc.WithBlock())
+	}, WithMaxRequestCount(3000), WithExpireTimeout(100*time.Second), WithIdleTimeout(100*time.Second), WithLazyLoading(true))
+	assert.NoError(err)
 
 	w := sync.WaitGroup{}
 	for i := 0; i < 10; i++ {
@@ -117,15 +140,24 @@ func TestPool_GetConn(t *testing.T) {
 		go func() {
 			defer w.Done()
 			for j := 0; j < 10000; j++ {
-				conn, err := p.GetConn()
+				conn, err := p1.GetConn()
 				assert.NoError(err)
 				client := health_pb.NewHealthClient(conn)
+				_, err = client.Check(context.Background(), &health_pb.HealthCheckRequest{Service: ""})
+				assert.NoError(err)
+
+				conn, err = p2.GetConn()
+				assert.NoError(err)
+				client = health_pb.NewHealthClient(conn)
 				_, err = client.Check(context.Background(), &health_pb.HealthCheckRequest{Service: ""})
 				assert.NoError(err)
 			}
 		}()
 	}
 	w.Wait()
+
+	fmt.Println("p1 pool ", len(p1.(*pool).conns))
+	fmt.Println("p2 pool ", len(p2.(*pool).conns))
 }
 
 func BenchmarkPool_GetConn(b *testing.B) {
@@ -143,7 +175,7 @@ func BenchmarkPool_GetConn(b *testing.B) {
 
 	p, err := NewPool(func() (*grpc.ClientConn, error) {
 		return grpc.Dial(fmt.Sprintf("localhost:%s", "9999"), grpc.WithInsecure(), grpc.WithBlock())
-	}, WithMaxRequestCount(1000000), WithExpireTimeout(20*time.Second), WithIdleTimeout(20*time.Second))
+	}, WithMaxRequestCount(1000000), WithExpireTimeout(20*time.Second), WithIdleTimeout(20*time.Second), WithLazyLoading(true))
 
 	for i := 0; i < b.N; i++ {
 		conn, _ := p.GetConn()
